@@ -4,15 +4,17 @@ import { Search, Star, BarChart2, MapPin, TrendingUp } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import { Badge } from "@/components/ui/badge";
 
 export default function Home() {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { data: session } = useSession();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +37,6 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <div className="bg-primary h-6 w-6 flex items-center justify-center text-white text-xs font-bold rounded">R</div>
             <span className="text-xl font-bold">Review Insights</span>
-
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <Link href="#features" className="text-sm font-medium hover:text-primary">
@@ -49,6 +50,20 @@ export default function Home() {
             </Link>
           </nav>
           <div className="flex items-center gap-4">
+            {session?.user ? (
+              <>
+                <Link href="/dashboard">
+                  <Button variant="outline">Dashboard</Button>
+                </Link>
+                <Button variant="ghost" onClick={() => signOut()}>
+                  Sign Out
+                </Button>
+              </>
+            ) : (
+              <Link href="/login">
+                <Button>Login / Sign Up</Button>
+              </Link>
+            )}
             <Badge>Demo</Badge>
           </div>
         </div>
