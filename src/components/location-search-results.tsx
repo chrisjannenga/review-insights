@@ -1,13 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ArrowLeft, MapPin, Phone, Star, Filter, Search, Menu, Loader2 } from "lucide-react"
 import Link from "next/link"
-import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
 
@@ -54,6 +52,40 @@ export default function LocationSearchResults({
   const [filterType, setFilterType] = useState("all")
   const [locations] = useState(initialLocations)
   const [searchQuery, setSearchQuery] = useState(initialQuery)
+  const [visibleLocations, setVisibleLocations] = useState(3)
+  const [overallSentiment, setOverallSentiment] = useState<string | null>(null)
+  const [isLoadingSentiment, setIsLoadingSentiment] = useState(false)
+
+  useEffect(() => {
+    // Fetch sentiment analysis when reviews change
+    const analyzeSentiment = async () => {
+      setIsLoadingSentiment(true)
+      try {
+        const response = await fetch('/api/analyze-sentiment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            reviews: initialReviews.map(review => review.content)
+          }),
+        })
+
+        if (!response.ok) throw new Error('Failed to analyze sentiment')
+
+        const data = await response.json()
+        setOverallSentiment(data.analysis)
+      } catch (error) {
+        console.error('Error analyzing sentiment:', error)
+      } finally {
+        setIsLoadingSentiment(false)
+      }
+    }
+
+    if (initialReviews.length > 0) {
+      analyzeSentiment()
+    }
+  }, [initialReviews])
 
   const handleLocationClick = (location: typeof initialLocations[0]) => {
     setSelectedLocation(location)
@@ -119,7 +151,7 @@ export default function LocationSearchResults({
           <div className="grid md:grid-cols-[350px,1fr] gap-8">
             {/* Locations List */}
             <div className="space-y-4">
-              {locations.map((location) => (
+              {locations.slice(0, visibleLocations).map((location) => (
                 <Card
                   key={location.id}
                   className={`cursor-pointer transition-colors hover:bg-accent ${selectedLocation?.id === location.id ? "border-primary" : ""
@@ -162,6 +194,15 @@ export default function LocationSearchResults({
                   </CardContent>
                 </Card>
               ))}
+
+              {locations.length > visibleLocations && (
+                <Button
+                  className="w-full mt-4 bg-[#c1432e] text-white hover:bg-[#a93826]"
+                  onClick={() => setVisibleLocations(locations.length)}
+                >
+                  See More Locations ({locations.length - visibleLocations} remaining)
+                </Button>
+              )}
             </div>
 
             {/* Reviews Section */}
@@ -169,10 +210,10 @@ export default function LocationSearchResults({
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <h2 className="text-2xl font-bold">Reviews</h2>
-                  <span className="text-muted-foreground">({filteredReviews.length})</span>
+                  <span className="text-muted-foreground text-lg">({filteredReviews.length})</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Filter className="h-4 w-4" />
+
                   <select
                     value={filterType}
                     onChange={(e) => setFilterType(e.target.value)}
@@ -186,82 +227,92 @@ export default function LocationSearchResults({
                 </div>
               </div>
 
-              {/* Review Overview Section */}
-              <Card className="mb-8">
-                <CardContent className="pt-6">
-                  <div className="grid md:grid-cols-[2fr,1fr] gap-6">
-                    {/* Rating Breakdown */}
-                    <div className="pr-6">
-                      <h3 className="text-lg font-semibold mb-3">Rating Breakdown</h3>
-                      <div className="space-y-2">
-                        {[5, 4, 3, 2, 1].map((rating) => {
-                          const count = initialReviews.filter(r => r.rating === rating).length;
-                          const percentage = Math.round((count / initialReviews.length) * 100) || 0;
-                          return (
-                            <div key={rating} className="flex items-center gap-3">
-                              <div className="flex items-center w-20">
-                                <span className="text-sm">{rating}</span>
-                                <span className="text-sm text-muted-foreground ml-1">stars</span>
-                              </div>
-                              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-yellow-400"
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                              <span className="w-12 text-sm text-muted-foreground text-right">{percentage}%</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Sentiment Analysis */}
-                    <div className="border-t md:border-t-0 md:border-l border-gray-200 md:pl-6 pt-4 md:pt-0">
-                      <h3 className="text-lg font-semibold mb-3">Sentiment Analysis</h3>
-                      <div className="space-y-3">
-                        {['positive', 'neutral', 'negative'].map((sentiment) => {
-                          const count = initialReviews.filter(r => r.sentiment === sentiment).length;
-                          const percentage = Math.round((count / initialReviews.length) * 100) || 0;
-                          const color = sentiment === 'positive' ? 'text-green-600' :
-                            sentiment === 'negative' ? 'text-red-600' :
-                              'text-gray-600';
-                          return (
-                            <div key={sentiment} className="flex items-center gap-3 justify-end">
-                              <span className={`text-lg font-semibold ${color} w-16 text-right`}>
-                                {percentage}%
-                              </span>
-                              <span className="capitalize text-muted-foreground text-sm w-16">{sentiment}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+              {/* Review Overview Sections */}
+              {/* Rating Breakdown Card */}
+              <Card className="mb-6">
+                <CardContent className="pt-2">
+                  <h3 className="text-lg font-semibold mb-4">Rating Breakdown</h3>
+                  <div className="space-y-4">
+                    {[5, 4, 3, 2, 1].map((rating) => {
+                      const count = initialReviews.filter(r => r.rating === rating).length;
+                      const percentage = Math.round((count / initialReviews.length) * 100) || 0;
+                      return (
+                        <div key={rating} className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 w-16">
+                            <span className="text-sm font-medium">{rating}</span>
+                            <span className="text-sm text-muted-foreground">stars</span>
+                          </div>
+                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-black"
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                          <span className="w-12 text-sm text-right">{percentage}%</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
 
+              {/* Sentiment Analysis Card */}
+              <Card className="mb-8">
+                <CardContent className="pt-2">
+                  <h3 className="text-lg font-semibold mb-4">Sentiment Analysis</h3>
+                  <div className="mb-6">
+                    <h4 className="text-sm font-medium text-gray-500 mb-2">Overall</h4>
+                    {isLoadingSentiment ? (
+                      <div className="space-y-3">
+                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[97%]" />
+                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[94%]" />
+                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[98%]" />
+                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[85%]" />
+                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[91%]" />
+                      </div>
+                    ) : overallSentiment ? (
+                      <div className="text-sm text-gray-600 leading-relaxed">
+                        {overallSentiment.replace(/^Overall sentiment:\s*/i, '')}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-600">
+                        No sentiment analysis available.
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    {['positive', 'neutral', 'negative'].map((sentiment) => {
+                      const count = initialReviews.filter(r => r.sentiment === sentiment).length;
+                      const percentage = Math.round((count / initialReviews.length) * 100) || 0;
+                      const color = sentiment === 'positive' ? 'text-green-600' :
+                        sentiment === 'negative' ? 'text-red-600' :
+                          'text-gray-600';
+                      return (
+                        <div key={sentiment} className="bg-white rounded-lg p-4 text-center border">
+                          <span className={`text-2xl font-bold ${color}`}>
+                            {percentage}%
+                          </span>
+                          <span className="block capitalize text-muted-foreground text-sm mt-1">{sentiment}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Customer Reviews Section */}
+              <h3 className="text-xl font-bold mb-4">Customer Reviews</h3>
               <div className="space-y-6">
                 {filteredReviews.map((review) => (
                   <Card key={review.id}>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {review.profilePhotoUrl ? (
-                            <Image
-                              src={review.profilePhotoUrl}
-                              alt={review.name}
-                              width={32}
-                              height={32}
-                              className="rounded-full"
-                            />
-                          ) : (
-                            <Avatar>
-                              <AvatarFallback>{review.avatar}</AvatarFallback>
-                            </Avatar>
-                          )}
+                    <CardContent className="pt-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-medium">
+                            {review.avatar}
+                          </div>
                           <div>
-                            <CardTitle className="text-base">{review.name}</CardTitle>
+                            <h4 className="font-semibold">{review.name}</h4>
                             <p className="text-sm text-muted-foreground">{review.time}</p>
                           </div>
                         </div>
@@ -274,18 +325,23 @@ export default function LocationSearchResults({
                                   ? "destructive"
                                   : "outline"
                             }
+                            className={
+                              review.sentiment === "positive"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 font-medium"
+                                : review.sentiment === "negative"
+                                  ? "bg-rose-50 text-rose-700 border-rose-200 font-medium"
+                                  : "bg-gray-50 text-gray-700 border-gray-200 font-medium"
+                            }
                           >
                             {review.sentiment}
                           </Badge>
                           <div className="flex items-center">
                             <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                            <span className="ml-1">{review.rating}</span>
+                            <span className="ml-1 font-medium">{review.rating}</span>
                           </div>
                         </div>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm">{review.content}</p>
+                      <p className="text-gray-600 mt-4 text-sm">{review.content}</p>
                     </CardContent>
                   </Card>
                 ))}
