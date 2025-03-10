@@ -1,11 +1,12 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "../api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Star } from "lucide-react";
 import { db } from "@/db";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { redirect } from "next/navigation";
 
 interface GooglePlace {
     place_id: string;
