@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Providers } from "./providers";
+import { Header } from "@/components/header";
+import { AuthProvider } from "@/components/auth-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Review Insights",
-  description: "Get insights from your customer reviews",
+  description: "Get insights from your business reviews",
 };
 
 export default function RootLayout({
@@ -18,7 +20,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <Providers>{children}</Providers>
+        <TooltipProvider>
+          <AuthProvider>
+            <Header />
+            <main>
+              {children}
+            </main>
+          </AuthProvider>
+        </TooltipProvider>
       </body>
     </html>
   );

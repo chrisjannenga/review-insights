@@ -32,43 +32,6 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between py-4">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary h-6 w-6 flex items-center justify-center text-white text-xs font-bold rounded">R</div>
-            <span className="text-xl font-bold">Review Insights</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="#features" className="text-sm font-medium hover:text-primary">
-              Features
-            </Link>
-            <Link href="#testimonials" className="text-sm font-medium hover:text-primary">
-              Testimonials
-            </Link>
-            <Link href="#pricing" className="text-sm font-medium hover:text-primary">
-              Pricing
-            </Link>
-          </nav>
-          <div className="flex items-center gap-4">
-            {session?.user ? (
-              <>
-                <Link href="/dashboard">
-                  <Button variant="outline">Dashboard</Button>
-                </Link>
-                <Button variant="ghost" onClick={() => signOut()}>
-                  Sign Out
-                </Button>
-              </>
-            ) : (
-              <Link href="/login">
-                <Button>Login / Sign Up</Button>
-              </Link>
-            )}
-            <Badge>Demo</Badge>
-          </div>
-        </div>
-      </header>
-
       <main className="flex-1">
         {/* Hero Section with Search */}
         <section className="relative py-20 md:py-32 overflow-hidden">

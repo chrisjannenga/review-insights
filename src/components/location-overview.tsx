@@ -13,7 +13,10 @@ export interface LocationOverviewProps {
   phone: string
   status: string
   isOpen?: boolean
+  photoUrl?: string
   onUnclaim?: () => void
+  isLoading?: boolean
+  isClaimed?: boolean
 }
 
 export function LocationOverview({
@@ -24,7 +27,10 @@ export function LocationOverview({
   phone,
   status,
   isOpen = true,
+  photoUrl,
   onUnclaim,
+  isLoading = false,
+  isClaimed = true,
 }: LocationOverviewProps) {
   return (
     <Card>
@@ -38,8 +44,19 @@ export function LocationOverview({
               <span className="font-medium">{rating}</span>
               <span className="text-muted-foreground ml-1">({reviewCount})</span>
             </div>
-            <Button variant="destructive" size="sm" onClick={onUnclaim}>
-              Unclaim
+            <Button
+              variant={isClaimed ? "destructive" : "default"}
+              size="sm"
+              onClick={onUnclaim}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : isClaimed ? (
+                'Unclaim'
+              ) : (
+                'Claim'
+              )}
             </Button>
           </div>
 

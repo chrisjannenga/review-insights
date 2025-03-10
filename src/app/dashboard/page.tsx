@@ -1,12 +1,12 @@
 'use client';
 
 import { useSession } from "next-auth/react";
-import { redirect, useRouter } from "next/navigation";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Plus } from "lucide-react";
 
 interface ClaimedBusiness {
     id: string;
@@ -18,9 +18,6 @@ interface ClaimedBusiness {
 
 export default function DashboardPage() {
     const { data: session } = useSession();
-    const router = useRouter();
-    const [query, setQuery] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
     const [claimedBusinesses, setClaimedBusinesses] = useState<ClaimedBusiness[]>([]);
     const [isLoadingBusinesses, setIsLoadingBusinesses] = useState(true);
 
@@ -47,76 +44,40 @@ export default function DashboardPage() {
         redirect("/login");
     }
 
-    const handleSearch = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!query.trim()) return;
-
-        setIsLoading(true);
-        try {
-            router.push(`/results?q=${encodeURIComponent(query)}`);
-        } catch (error) {
-            console.error('Search failed:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     return (
-        <div className="container mx-auto p-6 space-y-8">
-            <div className="flex flex-col space-y-2">
-                <h1 className="text-2xl font-semibold tracking-tight">My Businesses</h1>
-                <p className="text-muted-foreground">
-                    View and manage your claimed business locations.
-                </p>
-            </div>
-
-            {/* Search Form */}
-            <form onSubmit={handleSearch} className="w-full max-w-2xl">
-                <div className="flex gap-2">
-                    <Input
-                        type="search"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search for businesses to claim..."
-                        className="flex-1"
-                    />
-                    <Button type="submit" disabled={isLoading}>
-                        {isLoading ? (
-                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                        ) : (
-                            'Search'
-                        )}
-                    </Button>
+        <div className="container mx-auto p-6 max-w-7xl">
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">My Locations</h1>
+                    <p className="text-muted-foreground mt-2">
+                        Manage and monitor your business locations
+                    </p>
                 </div>
-            </form>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {isLoadingBusinesses ? (
-                    <div className="col-span-full flex justify-center">
-                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-current border-t-transparent" />
+                    <div className="col-span-full flex justify-center py-12">
+                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                     </div>
                 ) : claimedBusinesses.length === 0 ? (
-                    <div className="col-span-full text-center">
-                        <p className="text-muted-foreground mb-4">You haven&apos;t claimed any businesses yet.</p>
-                        <Button asChild>
-                            <Link href="/search">Find Your Business</Link>
-                        </Button>
+                    <div className="col-span-full bg-muted/30 rounded-lg p-12 text-center">
+                        <h3 className="text-xl font-semibold mb-2">No businesses claimed yet</h3>
+                        <p className="text-muted-foreground mb-6">Get started by claiming your first business location. Use the search bar above to find your locations.</p>
                     </div>
                 ) : (
                     claimedBusinesses.map((business) => (
-                        <Card key={business.id}>
-                            <CardHeader>
-                                <CardTitle>{business.name}</CardTitle>
+                        <Card key={business.id} className="relative">
+                            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                                <CardTitle className="text-xl font-bold">{business.name}</CardTitle>
+                                <Button variant="outline" size="sm" asChild className="absolute top-4 right-4">
+                                    <Link href={`/locations/${business.placeId}`}>
+                                        View Details
+                                    </Link>
+                                </Button>
                             </CardHeader>
                             <CardContent>
-                                <p className="text-sm text-muted-foreground">{business.address}</p>
-                                <div className="mt-4 flex justify-end">
-                                    <Button variant="outline" asChild>
-                                        <Link href={`/business/${business.placeId}`}>
-                                            View Details
-                                        </Link>
-                                    </Button>
-                                </div>
+                                <p className="text-sm text-muted-foreground mt-2">{business.address}</p>
                             </CardContent>
                         </Card>
                     ))

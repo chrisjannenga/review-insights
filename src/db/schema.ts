@@ -80,4 +80,22 @@ export const claimedBusinessesRelations = relations(claimedBusinesses, ({ one })
     fields: [claimedBusinesses.userId],
     references: [users.id],
   }),
+}));
+
+export const reviews = pgTable("reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  placeId: text("place_id").notNull(),
+  authorName: text("author_name").notNull(),
+  authorAvatar: text("author_avatar"),
+  rating: integer("rating").notNull(),
+  sentiment: text("sentiment").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  business: one(claimedBusinesses, {
+    fields: [reviews.placeId],
+    references: [claimedBusinesses.placeId],
+  }),
 })); 

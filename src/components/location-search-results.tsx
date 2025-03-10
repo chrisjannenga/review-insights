@@ -13,6 +13,7 @@ import type { Session } from "next-auth"
 import { RatingBreakdown } from "@/components/rating-breakdown"
 import { SentimentAnalysis } from "@/components/sentiment-analysis"
 import { ReviewList } from "@/components/review-list"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface LocationSearchResultsProps {
   initialQuery: string;
@@ -205,6 +206,9 @@ export default function LocationSearchResults({
     setIsClaimingLocation(prev => ({ ...prev, [locationId]: true }));
 
     try {
+      const location = locations.find(loc => loc.placeId === locationId);
+      if (!location) throw new Error("Location not found");
+
       const response = await fetch("/api/places/claim", {
         method: "POST",
         headers: {
@@ -212,23 +216,24 @@ export default function LocationSearchResults({
         },
         body: JSON.stringify({
           placeId: locationId,
-          action: claimedLocations[locationId] ? "unclaim" : "claim",
+          name: location.name,
+          address: location.address || "",
         }),
       });
 
       if (!response.ok) throw new Error("Failed to claim location");
 
-      await response.json();
+      const data = await response.json();
       setClaimedLocations(prev => ({
         ...prev,
-        [locationId]: !prev[locationId],
+        [locationId]: data.claimed,
       }));
     } catch (error) {
       console.error("Error claiming location:", error);
     } finally {
       setIsClaimingLocation(prev => ({ ...prev, [locationId]: false }));
     }
-  }, [claimedLocations]);
+  }, [locations]);
 
   // Calculate sentiment percentages for a specific location
   const calculateSentimentPercentages = useCallback(async (locationId: string | number) => {
@@ -250,6 +255,7 @@ export default function LocationSearchResults({
 
     try {
       console.log('🔍 Filtering reviews for location:', locationId);
+      const location = locations.find(loc => loc.id === locationId);
       const locationReviews = initialReviews.filter(review => review.locationId === locationId);
       const total = locationReviews.length;
 
@@ -281,7 +287,12 @@ export default function LocationSearchResults({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            reviews: locationReviews.map(review => review.content)
+            reviews: locationReviews.map(review => ({
+              text: review.content,
+              rating: review.rating
+            })),
+            type: 'summary',
+            locationName: location?.name || 'this location'
           }),
         });
 
@@ -316,7 +327,7 @@ export default function LocationSearchResults({
     }
 
     console.log('🟡 calculateSentimentPercentages END\n');
-  }, [initialReviews, sentimentDataMap]);
+  }, [initialReviews, sentimentDataMap, locations]);
 
   // Update sentiment calculation effect
   useEffect(() => {
@@ -338,51 +349,6 @@ export default function LocationSearchResults({
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header - Full Width */}
-      <header className="w-full bg-white border-b sticky top-0 z-10 px-0">
-        <div className="container mx-auto">
-          <div className="px-4 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center">
-              <span className="text-2xl font-bold text-gray-800 pr-2">
-                Review<span className="text-[#c1432e]">Insights</span>
-              </span>
-            </Link>
-
-            <div className="hidden md:flex items-center space-x-4">
-              <form onSubmit={handleSearch} className="relative w-64">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Search locations..."
-                  className="pl-8 bg-white border-gray-200 focus:border-[#c1432e] focus:ring-[#c1432e]"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </form>
-              <Badge>Demo</Badge>
-              {session?.user ? (
-                <>
-                  <Link href="/dashboard">
-                    <Button variant="outline">Dashboard</Button>
-                  </Link>
-                  <Button variant="ghost" onClick={() => signOut()}>
-                    Sign Out
-                  </Button>
-                </>
-              ) : (
-                <Link href="/login">
-                  <Button>Login / Sign Up</Button>
-                </Link>
-              )}
-            </div>
-
-            <Button variant="ghost" size="icon" className="md:hidden">
-              <Menu className="h-6 w-6" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
       {/* Main Content - Contained */}
       <main className="flex-1 w-full py-8">
         <div className="container mx-auto px-4">
@@ -468,6 +434,13 @@ export default function LocationSearchResults({
                         <Badge variant="outline">{location.status}</Badge>
                       )}
                     </div>
+                    <div className="mt-4 flex justify-end">
+                      <Link href={`/locations/${location.placeId}`}>
+                        <Button variant="outline" size="sm">
+                          View Details
+                        </Button>
+                      </Link>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -552,26 +525,6 @@ export default function LocationSearchResults({
                   {filteredReviews.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground">
                       No reviews found for the selected filter.
-                    </div>
-                  )}
-
-                  {hasMoreReviews && (
-                    <div className="flex justify-center mt-8">
-                      <Button
-                        variant="outline"
-                        onClick={onLoadMoreReviews}
-                        disabled={loadingMoreReviews}
-                        className="px-8"
-                      >
-                        {loadingMoreReviews ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Loading...
-                          </>
-                        ) : (
-                          'Load More Reviews'
-                        )}
-                      </Button>
                     </div>
                   )}
                 </div>
