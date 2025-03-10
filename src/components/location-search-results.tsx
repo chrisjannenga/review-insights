@@ -1,13 +1,19 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { ArrowLeft, MapPin, Phone, Star, Filter, Search, Menu, Loader2 } from "lucide-react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { ArrowLeft, MapPin, Phone, Star, Search, Menu, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
+import { signOut } from "next-auth/react"
+import type { Session } from "next-auth"
+import { RatingBreakdown } from "@/components/rating-breakdown"
+import { SentimentAnalysis } from "@/components/sentiment-analysis"
+import { ReviewList } from "@/components/review-list"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface LocationSearchResultsProps {
   initialQuery: string;
@@ -21,6 +27,7 @@ interface LocationSearchResultsProps {
     isOpen?: boolean;
     status?: string;
     image: string;
+    placeId?: string;
   }>;
   initialReviews: Array<{
     id: string | number;
@@ -31,12 +38,31 @@ interface LocationSearchResultsProps {
     time: string;
     content: string;
     profilePhotoUrl?: string;
+    locationId: string | number;
   }>;
   onLocationSelect?: (locationId: string) => void;
   onLoadMoreReviews?: () => void;
   hasMoreReviews?: boolean;
   loadingMoreReviews?: boolean;
+  session: Session | null;
 }
+
+interface Review {
+  rating: number;
+  sentiment: string;
+  content: string;
+  locationId: string | number;
+}
+
+// Move these outside the component to prevent recreation on each render
+const calculateRatingBreakdown = (reviews: Review[]) => {
+  const breakdown = [5, 4, 3, 2, 1].map(stars => {
+    const count = reviews.filter(r => r.rating === stars).length;
+    const percentage = Math.round((count / reviews.length) * 100) || 0;
+    return { stars, percentage };
+  });
+  return breakdown;
+};
 
 export default function LocationSearchResults({
   initialQuery,
@@ -45,7 +71,8 @@ export default function LocationSearchResults({
   onLocationSelect,
   onLoadMoreReviews,
   hasMoreReviews,
-  loadingMoreReviews
+  loadingMoreReviews,
+  session
 }: LocationSearchResultsProps) {
   const router = useRouter()
   const [selectedLocation, setSelectedLocation] = useState(initialLocations[0])
@@ -53,91 +80,275 @@ export default function LocationSearchResults({
   const [locations] = useState(initialLocations)
   const [searchQuery, setSearchQuery] = useState(initialQuery)
   const [visibleLocations, setVisibleLocations] = useState(3)
-  const [overallSentiment, setOverallSentiment] = useState<string | null>(null)
-  const [isLoadingSentiment, setIsLoadingSentiment] = useState(false)
+  const [claimedLocations, setClaimedLocations] = useState<Record<string, boolean>>({})
+  const [isClaimingLocation, setIsClaimingLocation] = useState<Record<string, boolean>>({})
+  const [sentimentDataMap, setSentimentDataMap] = useState<Record<string, {
+    positive: number;
+    negative: number;
+    neutral: number;
+    analysis: string;
+  }>>({});
+  const [loadingSentiment, setLoadingSentiment] = useState<Record<string, boolean>>({});
+  const claimChecksCompleted = useRef(false)
+  const pendingSentimentRequests = useRef<Record<string | number, boolean>>({});
 
+  console.log('Session state:', {
+    isAuthenticated: !!session?.user,
+    user: session?.user,
+  });
+
+  console.log('Locations state:', {
+    initialLocations,
+    locations,
+    selectedLocation,
+    claimedLocations,
+    isClaimingLocation
+  });
+
+  // Memoize filtered reviews to prevent unnecessary recalculations
+  const filteredReviews = useMemo(() => {
+    return initialReviews
+      .filter((review) => filterType === "all" || review.sentiment === filterType)
+      .slice(0, 10);
+  }, [initialReviews, filterType]);
+
+  // Batch check all location claims once on mount
   useEffect(() => {
-    // Fetch sentiment analysis when reviews change
-    const analyzeSentiment = async () => {
-      setIsLoadingSentiment(true)
+    const checkAllClaims = async () => {
+      if (!session?.user || claimChecksCompleted.current) return;
+
       try {
+        const placeIds = initialLocations
+          .map(loc => loc.placeId)
+          .filter((id): id is string => !!id);
+
+        if (placeIds.length === 0) return;
+
+        const claims: Record<string, boolean> = {};
+
+        // Process claims in parallel
+        await Promise.all(
+          placeIds.map(async (placeId) => {
+            try {
+              const response = await fetch(`/api/places/claim?placeId=${placeId}`, {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+              });
+
+              if (!response.ok) throw new Error("Failed to check claim status");
+
+              const data = await response.json();
+              claims[placeId] = data.claimed;
+            } catch (error) {
+              console.error(`Error checking claim for ${placeId}:`, error);
+              claims[placeId] = false;
+            }
+          })
+        );
+
+        setClaimedLocations(claims);
+        claimChecksCompleted.current = true;
+      } catch (error) {
+        console.error("Error checking claims:", error);
+      }
+    };
+
+    checkAllClaims();
+
+    // Reset on unmount
+    return () => {
+      claimChecksCompleted.current = false;
+    };
+  }, [session?.user, initialLocations]);
+
+  const handleLocationClick = useCallback((location: typeof initialLocations[0]) => {
+    console.log('\n🔵 handleLocationClick START', {
+      locationId: location?.id,
+      hasCachedData: location?.id ? !!sentimentDataMap[location.id] : false,
+    });
+
+    if (!location?.id) return;
+
+    // Only update if the location has changed
+    if (selectedLocation?.id !== location.id) {
+      setSelectedLocation(location);
+
+      if (onLocationSelect) {
+        console.log('🎯 Calling onLocationSelect with:', location.id.toString());
+        onLocationSelect(location.id.toString());
+      }
+
+      // Only set loading if we don't have cached data
+      if (!sentimentDataMap[location.id]) {
+        console.log('🔄 Setting loading state to true for location:', location.id);
+        setLoadingSentiment(prev => ({ ...prev, [location.id]: true }));
+      }
+    }
+
+    console.log('🔵 handleLocationClick END\n');
+  }, [onLocationSelect, selectedLocation, sentimentDataMap]);
+
+  const handleSearch = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    if (searchQuery.trim()) {
+      router.push(`/results?q=${encodeURIComponent(searchQuery.trim())}`)
+    }
+  }, [searchQuery, router]);
+
+  const handleClaimLocation = useCallback(async (locationId: string | undefined) => {
+    if (!locationId) {
+      console.error("Cannot claim location: missing placeId");
+      return;
+    }
+
+    setIsClaimingLocation(prev => ({ ...prev, [locationId]: true }));
+
+    try {
+      const location = locations.find(loc => loc.placeId === locationId);
+      if (!location) throw new Error("Location not found");
+
+      const response = await fetch("/api/places/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          placeId: locationId,
+          name: location.name,
+          address: location.address || "",
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to claim location");
+
+      const data = await response.json();
+      setClaimedLocations(prev => ({
+        ...prev,
+        [locationId]: data.claimed,
+      }));
+    } catch (error) {
+      console.error("Error claiming location:", error);
+    } finally {
+      setIsClaimingLocation(prev => ({ ...prev, [locationId]: false }));
+    }
+  }, [locations]);
+
+  // Calculate sentiment percentages for a specific location
+  const calculateSentimentPercentages = useCallback(async (locationId: string | number) => {
+    console.log('\n🟡 calculateSentimentPercentages START', {
+      locationId,
+      hasCachedData: !!sentimentDataMap[locationId],
+      isPending: pendingSentimentRequests.current[locationId],
+    });
+
+    // If we already have the sentiment data or a request is pending, return early
+    if (sentimentDataMap[locationId] || pendingSentimentRequests.current[locationId]) {
+      console.log('📦 Found cached data or pending request, returning early');
+      setLoadingSentiment(prev => ({ ...prev, [locationId]: false }));
+      return;
+    }
+
+    // Mark this request as pending
+    pendingSentimentRequests.current[locationId] = true;
+
+    try {
+      console.log('🔍 Filtering reviews for location:', locationId);
+      const location = locations.find(loc => loc.id === locationId);
+      const locationReviews = initialReviews.filter(review => review.locationId === locationId);
+      const total = locationReviews.length;
+
+      if (total === 0) {
+        console.log('⚠️ No reviews found for location');
+        setSentimentDataMap(prev => ({
+          ...prev,
+          [locationId]: {
+            positive: 0,
+            negative: 0,
+            neutral: 0,
+            analysis: 'No reviews available for sentiment analysis.'
+          }
+        }));
+        return;
+      }
+
+      const positive = locationReviews.filter(r => r.sentiment === 'positive').length;
+      const negative = locationReviews.filter(r => r.sentiment === 'negative').length;
+      const neutral = locationReviews.filter(r => r.sentiment === 'neutral').length;
+
+      let analysis = `Based on ${total} reviews, ${positive} are positive, ${neutral} are neutral, and ${negative} are negative.`;
+
+      try {
+        console.log('🌐 Fetching sentiment analysis from API');
         const response = await fetch('/api/analyze-sentiment', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            reviews: initialReviews.map(review => review.content)
+            reviews: locationReviews.map(review => ({
+              text: review.content,
+              rating: review.rating
+            })),
+            type: 'summary',
+            locationName: location?.name || 'this location'
           }),
-        })
+        });
 
-        if (!response.ok) throw new Error('Failed to analyze sentiment')
+        if (!response.ok) throw new Error('Failed to analyze sentiment');
 
-        const data = await response.json()
-        setOverallSentiment(data.analysis)
+        const data = await response.json();
+        analysis = data.analysis;
+        console.log('✅ API call successful');
       } catch (error) {
-        console.error('Error analyzing sentiment:', error)
-      } finally {
-        setIsLoadingSentiment(false)
+        console.error('❌ Error analyzing sentiment:', error);
       }
+
+      const result = {
+        positive: Math.round((positive / total) * 100) || 0,
+        negative: Math.round((negative / total) * 100) || 0,
+        neutral: Math.round((neutral / total) * 100) || 0,
+        analysis
+      };
+
+      console.log('💾 Updating sentiment data map with results');
+      setSentimentDataMap(prev => ({
+        ...prev,
+        [locationId]: result
+      }));
+
+    } catch (error) {
+      console.error('❌ Error in calculateSentimentPercentages:', error);
+    } finally {
+      setLoadingSentiment(prev => ({ ...prev, [locationId]: false }));
+      // Clear the pending flag
+      pendingSentimentRequests.current[locationId] = false;
     }
 
-    if (initialReviews.length > 0) {
-      analyzeSentiment()
-    }
-  }, [initialReviews])
+    console.log('🟡 calculateSentimentPercentages END\n');
+  }, [initialReviews, sentimentDataMap, locations]);
 
-  const handleLocationClick = (location: typeof initialLocations[0]) => {
-    setSelectedLocation(location)
-    if (onLocationSelect) {
-      onLocationSelect(location.id.toString())
+  // Update sentiment calculation effect
+  useEffect(() => {
+    if (!selectedLocation?.id) {
+      console.log('⚪ No selected location, skipping');
+      return;
     }
-  }
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchQuery.trim()) {
-      router.push(`/results?q=${encodeURIComponent(searchQuery.trim())}`)
+    // If we already have the data or a request is pending, don't recalculate
+    if (sentimentDataMap[selectedLocation.id] || pendingSentimentRequests.current[selectedLocation.id]) {
+      console.log('📦 Found cached data or pending request, skipping calculation');
+      return;
     }
-  }
 
-  const filteredReviews = initialReviews
-    .filter((review) => filterType === "all" || review.sentiment === filterType)
-    .slice(0, 10)
+    console.log('🎯 Initiating sentiment calculation');
+    calculateSentimentPercentages(selectedLocation.id);
+
+  }, [selectedLocation?.id, calculateSentimentPercentages, sentimentDataMap]);
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header - Full Width */}
-      <header className="w-full bg-white border-b sticky top-0 z-10 px-0">
-        <div className="container mx-auto">
-          <div className="px-4 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center">
-              <span className="text-2xl font-bold text-gray-800 pr-2">
-                Review<span className="text-[#c1432e]">Insights</span>
-              </span>
-            </Link>
-
-            <div className="hidden md:flex items-center space-x-4">
-              <form onSubmit={handleSearch} className="relative w-64">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Search locations..."
-                  className="pl-8 bg-white border-gray-200 focus:border-[#c1432e] focus:ring-[#c1432e]"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </form>
-              <Badge>Demo</Badge>
-            </div>
-
-            <Button variant="ghost" size="icon" className="md:hidden">
-              <Menu className="h-6 w-6" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
       {/* Main Content - Contained */}
       <main className="flex-1 w-full py-8">
         <div className="container mx-auto px-4">
@@ -161,10 +372,42 @@ export default function LocationSearchResults({
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                       <span className="text-lg">{location.name}</span>
-                      <div className="flex items-center gap-1">
-                        <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                        <span>{location.rating}</span>
-                        <span className="text-muted-foreground">({location.reviews})</span>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1">
+                          <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                          <span>{location.rating}</span>
+                          <span className="text-muted-foreground">({location.reviews})</span>
+                        </div>
+                        {(() => {
+                          console.log('Claim button conditions:', {
+                            locationName: location.name,
+                            hasSession: !!session?.user,
+                            hasPlaceId: !!location.placeId,
+                            placeId: location.placeId,
+                            isClaimed: location.placeId ? claimedLocations[location.placeId] : undefined,
+                            isClaimingInProgress: location.placeId ? isClaimingLocation[location.placeId] : undefined
+                          });
+                          return null;
+                        })()}
+                        {session?.user && location.placeId && (
+                          <Button
+                            variant={claimedLocations[location.placeId] ? "destructive" : "default"}
+                            size="sm"
+                            disabled={isClaimingLocation[location.placeId]}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClaimLocation(location.placeId);
+                            }}
+                          >
+                            {isClaimingLocation[location.placeId] ? (
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                            ) : claimedLocations[location.placeId] ? (
+                              "Unclaim"
+                            ) : (
+                              "Claim"
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </CardTitle>
                   </CardHeader>
@@ -190,6 +433,13 @@ export default function LocationSearchResults({
                       {location.status && (
                         <Badge variant="outline">{location.status}</Badge>
                       )}
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <Link href={`/locations/${location.placeId}`}>
+                        <Button variant="outline" size="sm">
+                          View Details
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
@@ -228,149 +478,56 @@ export default function LocationSearchResults({
               </div>
 
               {/* Review Overview Sections */}
-              {/* Rating Breakdown Card */}
-              <Card className="mb-6">
-                <CardContent className="pt-2">
+              <div className="space-y-8">
+                {/* Rating Breakdown Section */}
+                <div>
                   <h3 className="text-lg font-semibold mb-4">Rating Breakdown</h3>
-                  <div className="space-y-4">
-                    {[5, 4, 3, 2, 1].map((rating) => {
-                      const count = initialReviews.filter(r => r.rating === rating).length;
-                      const percentage = Math.round((count / initialReviews.length) * 100) || 0;
-                      return (
-                        <div key={rating} className="flex items-center gap-3">
-                          <div className="flex items-center gap-1 w-16">
-                            <span className="text-sm font-medium">{rating}</span>
-                            <span className="text-sm text-muted-foreground">stars</span>
-                          </div>
-                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-black"
-                              style={{ width: `${percentage}%` }}
-                            />
-                          </div>
-                          <span className="w-12 text-sm text-right">{percentage}%</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+                  <RatingBreakdown ratings={calculateRatingBreakdown(filteredReviews)} />
+                </div>
 
-              {/* Sentiment Analysis Card */}
-              <Card className="mb-8">
-                <CardContent className="pt-2">
+                {/* Sentiment Analysis Section */}
+                <div>
                   <h3 className="text-lg font-semibold mb-4">Sentiment Analysis</h3>
-                  <div className="mb-6">
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Overall</h4>
-                    {isLoadingSentiment ? (
-                      <div className="space-y-3">
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[97%]" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[94%]" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[98%]" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[85%]" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-[91%]" />
-                      </div>
-                    ) : overallSentiment ? (
-                      <div className="text-sm text-gray-600 leading-relaxed">
-                        {overallSentiment.replace(/^Overall sentiment:\s*/i, '')}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-gray-600">
-                        No sentiment analysis available.
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    {['positive', 'neutral', 'negative'].map((sentiment) => {
-                      const count = initialReviews.filter(r => r.sentiment === sentiment).length;
-                      const percentage = Math.round((count / initialReviews.length) * 100) || 0;
-                      const color = sentiment === 'positive' ? 'text-green-600' :
-                        sentiment === 'negative' ? 'text-red-600' :
-                          'text-gray-600';
-                      return (
-                        <div key={sentiment} className="bg-white rounded-lg p-4 text-center border">
-                          <span className={`text-2xl font-bold ${color}`}>
-                            {percentage}%
-                          </span>
-                          <span className="block capitalize text-muted-foreground text-sm mt-1">{sentiment}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+                  {selectedLocation?.id ? (
+                    <SentimentAnalysis
+                      {...(sentimentDataMap[selectedLocation.id] || {
+                        positive: 0,
+                        negative: 0,
+                        neutral: 0,
+                        analysis: ''
+                      })}
+                      isLoading={loadingSentiment[selectedLocation.id] || false}
+                    />
+                  ) : (
+                    <Card>
+                      <CardContent className="p-6 text-center text-muted-foreground">
+                        Select a location to view sentiment analysis
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
 
-              {/* Customer Reviews Section */}
-              <h3 className="text-xl font-bold mb-4">Customer Reviews</h3>
-              <div className="space-y-6">
-                {filteredReviews.map((review) => (
-                  <Card key={review.id}>
-                    <CardContent className="pt-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-medium">
-                            {review.avatar}
-                          </div>
-                          <div>
-                            <h4 className="font-semibold">{review.name}</h4>
-                            <p className="text-sm text-muted-foreground">{review.time}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={
-                              review.sentiment === "positive"
-                                ? "outline"
-                                : review.sentiment === "negative"
-                                  ? "destructive"
-                                  : "outline"
-                            }
-                            className={
-                              review.sentiment === "positive"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 font-medium"
-                                : review.sentiment === "negative"
-                                  ? "bg-rose-50 text-rose-700 border-rose-200 font-medium"
-                                  : "bg-gray-50 text-gray-700 border-gray-200 font-medium"
-                            }
-                          >
-                            {review.sentiment}
-                          </Badge>
-                          <div className="flex items-center">
-                            <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                            <span className="ml-1 font-medium">{review.rating}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <p className="text-gray-600 mt-4 text-sm">{review.content}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+                {/* Customer Reviews Section */}
+                <div>
 
-                {filteredReviews.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No reviews found for the selected filter.
-                  </div>
-                )}
+                  <ReviewList
+                    reviews={filteredReviews.map(review => ({
+                      id: review.id.toString(),
+                      author: review.name,
+                      content: review.content,
+                      date: review.time,
+                      rating: review.rating,
+                      sentiment: review.sentiment as "positive" | "neutral" | "negative"
+                    }))}
+                    onLoadMore={onLoadMoreReviews}
+                  />
 
-                {hasMoreReviews && (
-                  <div className="flex justify-center mt-8">
-                    <Button
-                      variant="outline"
-                      onClick={onLoadMoreReviews}
-                      disabled={loadingMoreReviews}
-                      className="px-8"
-                    >
-                      {loadingMoreReviews ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        'Load More Reviews'
-                      )}
-                    </Button>
-                  </div>
-                )}
+                  {filteredReviews.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No reviews found for the selected filter.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -447,4 +604,5 @@ export default function LocationSearchResults({
     </div>
   )
 }
+
 

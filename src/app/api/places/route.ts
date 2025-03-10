@@ -161,6 +161,8 @@ export async function GET(request: Request) {
                 } : undefined,
                 businessStatus: place.businessStatus || '',
                 reviews: reviewsWithSentiment,
+                id: place.id || '',
+                placeId: place.id || '',
             };
         }));
 

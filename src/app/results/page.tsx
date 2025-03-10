@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import LocationSearchResults from "@/components/location-search-results";
 import { ReviewLoader } from "@/components/review-loader";
+import { useSession } from "next-auth/react";
 
 interface GoogleReview {
     id: string;
@@ -40,6 +41,7 @@ interface PlaceDetails {
 function ResultsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+    const { data: session } = useSession();
     const query = searchParams.get('q');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -93,8 +95,8 @@ function ResultsContent() {
         fetchPlaces();
     }, [query, router]);
 
-    const mappedLocations = places.map((place, index) => ({
-        id: `${place.name}-${index}`,
+    const mappedLocations = places.map((place) => ({
+        id: place.id,
         name: place.name,
         rating: place.rating,
         reviews: place.totalReviews,
@@ -102,11 +104,12 @@ function ResultsContent() {
         phone: place.phoneNumber,
         isOpen: place.openingHours?.open_now,
         status: place.businessStatus,
-        image: "/placeholder.svg?height=200&width=300"
+        image: "/placeholder.svg?height=200&width=300",
+        placeId: place.id
     }));
 
     const handleLocationSelect = async (locationId: string) => {
-        const selected = places[Number.parseInt(locationId.split('-')[1])];
+        const selected = places.find(place => place.id === locationId);
         if (selected) {
             setSelectedPlace(selected);
             const details = await fetchPlaceDetails(selected.id.toString());
@@ -160,10 +163,11 @@ function ResultsContent() {
         time: review.date,
         content: review.text,
         profilePhotoUrl: review.profilePhotoUrl,
+        locationId: selectedPlace.id
     })) || [];
 
     return (
-        <div className="mx-auto">
+        <div className="min-h-screen flex flex-col">
             <LocationSearchResults
                 initialQuery={query || ''}
                 initialLocations={mappedLocations}
@@ -172,6 +176,7 @@ function ResultsContent() {
                 onLoadMoreReviews={handleLoadMoreReviews}
                 hasMoreReviews={!!selectedPlace?.nextPageToken}
                 loadingMoreReviews={loadingMoreReviews}
+                session={session}
             />
         </div>
     );
