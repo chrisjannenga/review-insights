@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Search, Menu } from "lucide-react"
+import { Search, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { useRouter, usePathname } from "next/navigation"
 export function Header() {
     const { data: session } = useSession()
     const [searchQuery, setSearchQuery] = useState("")
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const router = useRouter()
     const pathname = usePathname()
 
@@ -19,10 +20,15 @@ export function Header() {
         e.preventDefault()
         if (searchQuery.trim()) {
             router.push(`/results?q=${encodeURIComponent(searchQuery.trim())}`)
+            setIsMobileMenuOpen(false)
         }
     }
 
     const isHomePage = pathname === '/'
+
+    const toggleMobileMenu = () => {
+        setIsMobileMenuOpen(!isMobileMenuOpen)
+    }
 
     return (
         <header className="w-full bg-white border-b sticky top-0 z-50">
@@ -63,10 +69,53 @@ export function Header() {
                         )}
                     </div>
 
-                    <Button variant="ghost" size="icon" className="md:hidden">
-                        <Menu className="h-6 w-6" />
+                    <Button variant="ghost" size="icon" className="md:hidden" onClick={toggleMobileMenu}>
+                        {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
                     </Button>
                 </div>
+
+                {/* Mobile Menu */}
+                {isMobileMenuOpen && (
+                    <div className="md:hidden border-t px-4 py-4 space-y-4 bg-white">
+                        {!isHomePage && (
+                            <form onSubmit={handleSearch} className="relative">
+                                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    type="search"
+                                    placeholder="Search locations..."
+                                    className="pl-8 w-full bg-white border-gray-200 focus:border-[#c1432e] focus:ring-[#c1432e]"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </form>
+                        )}
+                        <div className="flex flex-col space-y-2">
+                            {session?.user ? (
+                                <>
+                                    <Link href="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
+                                        <Button variant="default" className="w-full">
+                                            Dashboard
+                                        </Button>
+                                    </Link>
+                                    <Button
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={() => {
+                                            setIsMobileMenuOpen(false)
+                                            signOut()
+                                        }}
+                                    >
+                                        Sign Out
+                                    </Button>
+                                </>
+                            ) : (
+                                <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <Button className="w-full">Login / Sign Up</Button>
+                                </Link>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </header>
     )

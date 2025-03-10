@@ -1,20 +1,21 @@
-import { config } from "dotenv";
-import { sql } from "@vercel/postgres";
-import { drizzle } from "drizzle-orm/vercel-postgres";
-import * as schema from "./schema";
+const { config } = require("dotenv");
+const { sql } = require("@vercel/postgres");
+const { drizzle } = require("drizzle-orm/vercel-postgres");
 
 // Load environment variables from .env file
-config();
+if (process.env.NODE_ENV === 'production') {
+  config({ path: '.env.production' });
+} else {
+  config();
+}
 
 async function main() {
   try {
-    const db = drizzle(sql);
-
-    console.log("Creating tables...");
+    console.log("Starting database setup...");
     
     // Create users table
     await sql`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE IF NOT EXISTS "users" (
         id TEXT PRIMARY KEY,
         name TEXT,
         email TEXT UNIQUE NOT NULL,
@@ -28,7 +29,7 @@ async function main() {
 
     // Create accounts table
     await sql`
-      CREATE TABLE IF NOT EXISTS accounts (
+      CREATE TABLE IF NOT EXISTS "accounts" (
         "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         type TEXT NOT NULL,
         provider TEXT NOT NULL,
@@ -46,8 +47,8 @@ async function main() {
 
     // Create sessions table
     await sql`
-      CREATE TABLE IF NOT EXISTS sessions (
-        "sessionToken" TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS "sessions" (
+        "sessionToken" TEXT PRIMARY KEY NOT NULL,
         "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         expires TIMESTAMP WITH TIME ZONE NOT NULL
       );
@@ -77,9 +78,51 @@ async function main() {
       );
     `;
 
-    console.log("Tables created successfully!");
+    // Create claimed businesses table
+    await sql`
+      CREATE TABLE IF NOT EXISTS "claimed_businesses" (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "userId" TEXT NOT NULL REFERENCES users(id),
+        "placeId" TEXT NOT NULL,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `;
+
+    // Create reviews table
+    await sql`
+      CREATE TABLE IF NOT EXISTS "reviews" (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "placeId" TEXT NOT NULL,
+        "authorName" TEXT NOT NULL,
+        "authorAvatar" TEXT,
+        rating INTEGER NOT NULL,
+        sentiment TEXT NOT NULL,
+        content TEXT NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `;
+
+    // Update claimed_businesses table to use userId instead of user_id if it exists
+    await sql`
+      DO $$ 
+      BEGIN 
+        IF EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'claimed_businesses' 
+          AND column_name = 'user_id'
+        ) THEN
+          ALTER TABLE claimed_businesses
+          RENAME COLUMN user_id TO "userId";
+        END IF;
+      END $$;
+    `;
+
+    console.log("Database setup completed successfully!");
   } catch (error) {
-    console.error("Error creating tables:", error);
+    console.error("Error setting up database:", error);
     process.exit(1);
   }
 }

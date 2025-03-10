@@ -435,11 +435,13 @@ export default function LocationSearchResults({
                       )}
                     </div>
                     <div className="mt-4 flex justify-end">
-                      <Link href={`/locations/${location.placeId}`}>
-                        <Button variant="outline" size="sm">
-                          View Details
-                        </Button>
-                      </Link>
+                      {session?.user && (
+                        <Link href={`/locations/${location.placeId}`}>
+                          <Button variant="outline" size="sm">
+                            View Details
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

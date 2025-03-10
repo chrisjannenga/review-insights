@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS "claimed_businesses" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "reviews" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"place_id" text NOT NULL,
+	"author_name" text NOT NULL,
+	"author_avatar" text,
+	"rating" integer NOT NULL,
+	"sentiment" text NOT NULL,
+	"content" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "sessions" (
 	"sessionToken" text PRIMARY KEY NOT NULL,
 	"userId" text NOT NULL,

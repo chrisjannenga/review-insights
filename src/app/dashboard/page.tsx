@@ -1,12 +1,13 @@
 'use client';
 
 import { useSession } from "next-auth/react";
-import { redirect } from "next/navigation";
+import { redirect, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface ClaimedBusiness {
     id: string;
@@ -18,6 +19,7 @@ interface ClaimedBusiness {
 
 export default function DashboardPage() {
     const { data: session } = useSession();
+    const router = useRouter();
     const [claimedBusinesses, setClaimedBusinesses] = useState<ClaimedBusiness[]>([]);
     const [isLoadingBusinesses, setIsLoadingBusinesses] = useState(true);
 
@@ -64,6 +66,25 @@ export default function DashboardPage() {
                     <div className="col-span-full bg-muted/30 rounded-lg p-12 text-center">
                         <h3 className="text-xl font-semibold mb-2">No businesses claimed yet</h3>
                         <p className="text-muted-foreground mb-6">Get started by claiming your first business location. Use the search bar above to find your locations.</p>
+
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const formData = new FormData(e.currentTarget);
+                            const query = formData.get('search') as string;
+                            if (query.trim()) {
+                                router.push(`/results?q=${encodeURIComponent(query)}`);
+                            }
+                        }} className="flex flex-col sm:flex-row gap-2 max-w-lg mx-auto">
+                            <Input
+                                name="search"
+                                type="text"
+                                placeholder="Search for your business..."
+                                className="flex-1"
+                            />
+                            <Button type="submit" className="w-full sm:w-auto">
+                                Search
+                            </Button>
+                        </form>
                     </div>
                 ) : (
                     claimedBusinesses.map((business) => (
